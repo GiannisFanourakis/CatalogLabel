@@ -1,4 +1,6 @@
-﻿# LabelForge (Windows)
+﻿<img src="assets/logo/LabelForge-logo.jpeg" width="240" />
+
+# LabelForge (Windows)
 
 **Structured Label & Classification Generator**
 
