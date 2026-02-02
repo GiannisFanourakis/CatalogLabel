@@ -1,0 +1,67 @@
+﻿THIRD-PARTY SOFTWARE NOTICES
+
+LabelForge includes the following third-party software components.
+Each component is distributed under its own license.
+
+------------------------------------------------------------
+Python
+------------------------------------------------------------
+Copyright (c) Python Software Foundation
+License: Python Software Foundation License
+https://www.python.org/
+
+------------------------------------------------------------
+PySide6 (Qt for Python)
+------------------------------------------------------------
+Copyright (c) The Qt Company Ltd.
+License: LGPL v3
+https://www.qt.io/licensing/
+
+Note:
+LabelForge dynamically links against Qt via PySide6 and complies
+with the LGPL v3 by allowing replacement of the Qt libraries.
+
+------------------------------------------------------------
+ReportLab
+------------------------------------------------------------
+Copyright (c) ReportLab Inc.
+License: BSD
+https://www.reportlab.com/
+
+------------------------------------------------------------
+OpenPyXL
+------------------------------------------------------------
+Copyright (c) OpenPyXL Contributors
+License: MIT
+https://openpyxl.readthedocs.io/
+
+------------------------------------------------------------
+Pillow (PIL Fork)
+------------------------------------------------------------
+Copyright (c) Pillow Contributors
+License: HPND
+https://python-pillow.org/
+
+------------------------------------------------------------
+PyInstaller
+------------------------------------------------------------
+Copyright (c) PyInstaller Development Team
+License: GPL v2 with special exception
+https://www.pyinstaller.org/
+
+Note:
+The PyInstaller exception allows distribution of proprietary or
+open-source applications without affecting the license of the
+application itself.
+
+------------------------------------------------------------
+Inno Setup
+------------------------------------------------------------
+Copyright (c) Jordan Russell
+License: Inno Setup License
+https://jrsoftware.org/isinfo.php
+
+------------------------------------------------------------
+
+This file is provided for informational purposes only.
+The full license texts can be found on the respective project websites.

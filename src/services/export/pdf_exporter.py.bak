@@ -1,0 +1,381 @@
+﻿from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+from reportlab.lib.pagesizes import A4, LETTER
+from reportlab.pdfgen import canvas
+
+
+@dataclass
+class PdfExportOptions:
+    template_id: str = "classic_serif"
+    pagesize: str = "A4"  # "A4" or "LETTER"
+    section_title: str = ""  # optional heading
+    footer_text: str = ""  # optional footer
+    header_text: str = "NHMC"  # default top-left brand text
+    auto_two_columns: bool = True
+
+    # typography
+    font_name: str = "Times-Roman"
+    font_bold: str = "Times-Bold"
+    font_sans: str = "Helvetica"
+    font_sans_bold: str = "Helvetica-Bold"
+    base_size: int = 11
+    section_size: int = 14
+
+
+# ----------------------------- helpers -----------------------------
+
+def _pagesize_from_opts(opts: PdfExportOptions):
+    ps = (opts.pagesize or "A4").upper().strip()
+    if ps == "LETTER":
+        return LETTER
+    return A4
+
+
+def _safe_str(x: Any) -> str:
+    if x is None:
+        return ""
+    return str(x)
+
+
+def _extract_rows(document: Any) -> List[Tuple[int, str, str]]:
+    """
+    Convert LabelDocument -> list of (level, code, name) rows.
+    Robust to older/newer domain models.
+    """
+    rows: List[Tuple[int, str, str]] = []
+
+    # Common patterns:
+    # - document.root exists; nodes have children
+    # - document.nodes iterable
+    # - document.to_rows() exists
+    if hasattr(document, "to_rows") and callable(getattr(document, "to_rows")):
+        rr = document.to_rows()
+        for r in rr:
+            if len(r) >= 3:
+                rows.append((int(r[0]), _safe_str(r[1]), _safe_str(r[2])))
+        return rows
+
+    root = getattr(document, "root", None)
+    if root is not None:
+        def walk(node: Any, level: int):
+            code = _safe_str(getattr(node, "code", getattr(node, "id", "")))
+            name = _safe_str(getattr(node, "name", getattr(node, "label", "")))
+            if code or name:
+                rows.append((level, code, name))
+            children = getattr(node, "children", None)
+            if children:
+                for ch in children:
+                    walk(ch, level + 1)
+        walk(root, 1)
+        return rows
+
+    nodes = getattr(document, "nodes", None)
+    if nodes is not None and hasattr(nodes, "__iter__"):
+        # if nodes exist, try a best-effort: assume each node has level/code/name
+        for n in nodes:
+            lvl = int(getattr(n, "level", 1))
+            code = _safe_str(getattr(n, "code", getattr(n, "id", "")))
+            name = _safe_str(getattr(n, "name", getattr(n, "label", "")))
+            rows.append((lvl, code, name))
+        return rows
+
+    # last resort: if document itself iterable
+    if hasattr(document, "__iter__"):
+        try:
+            for n in document:
+                lvl = int(getattr(n, "level", 1))
+                code = _safe_str(getattr(n, "code", getattr(n, "id", "")))
+                name = _safe_str(getattr(n, "name", getattr(n, "label", "")))
+                rows.append((lvl, code, name))
+            return rows
+        except TypeError:
+            pass
+
+    return rows
+
+
+def _draw_wrapped(c: canvas.Canvas, x: float, y: float, w: float, h: float, text: str,
+                 font: str, opts: PdfExportOptions, bold: bool = False):
+    """
+    Minimal wrapping: break long lines by words.
+    """
+    if not text:
+        return
+    c.setFont(font, opts.base_size)
+    words = text.split()
+    line = ""
+    yy = y
+    for wds in words:
+        trial = (line + " " + wds).strip()
+        if c.stringWidth(trial, font, opts.base_size) <= w:
+            line = trial
+        else:
+            c.drawString(x, yy, line)
+            yy -= (opts.base_size + 2)
+            line = wds
+            if yy < y - h:
+                # stop if exceeded block height
+                break
+    if line and yy >= y - h:
+        c.drawString(x, yy, line)
+
+
+def export_label_pdf(document: Any, out_path: str, opts: Optional[PdfExportOptions] = None) -> None:
+    """
+    Main export entry.
+    Signature must be: (document, out_path, opts)
+    """
+    if opts is None:
+        opts = PdfExportOptions()
+
+    pagesize = _pagesize_from_opts(opts)
+    c = canvas.Canvas(out_path, pagesize=pagesize)
+
+    W, H = pagesize
+    margin = 54  # 0.75 inch
+    x0 = margin
+    y0 = margin
+    content_w = W - 2 * margin
+    content_h = H - 2 * margin
+
+    rows = _extract_rows(document)
+
+    tid = (opts.template_id or "classic_serif").strip()
+
+    # Template controls
+    template_draws_own_section_title = tid in {"outline"}
+
+    def header_footer(page_no: int):
+        # header (simple, institutional-ish)
+        c.setFont(opts.font_bold, 14)
+        c.drawString(x0, H - margin + 10, opts.header_text or "NHMC")
+
+        if (opts.footer_text or "").strip():
+            c.setFont(opts.font_sans, 9)
+            c.drawRightString(W - margin, margin - 18, opts.footer_text.strip())
+
+    page_no = 1
+    header_footer(page_no)
+
+    y = H - margin - 30  # start below header
+
+    def new_page():
+        nonlocal page_no, y
+        c.showPage()
+        page_no += 1
+        header_footer(page_no)
+        y = H - margin - 30
+        return y
+
+    # ---------------- OUTLINE ----------------
+    if tid == "outline":
+        st = (opts.section_title or "").strip()
+
+        # Clean outline (no table). If it doesn't fit, flow into a second column on the SAME page
+        # before moving to a new page.
+        bullet_indent = 10.0
+        line_h = 14.0
+        row_h = line_h + 6
+
+        # Current top-of-content y (after header/footer)
+        y_page_top = y
+
+        # Optional section title at the top of the first column
+        if st:
+            c.setFont(opts.font_bold, opts.section_size)
+            c.drawString(x0, y, st)
+            y -= (opts.section_size + 10)
+            y_page_top = y  # column content starts after the section title
+
+        # Decide if we should use two columns on this page
+        use_two_cols = False
+        if opts.auto_two_columns:
+            avail_h = y_page_top - margin
+            need_h = max(1, len(rows)) * row_h  # robust estimate
+            if need_h > avail_h:
+                use_two_cols = True
+
+        col_gap = 18.0
+        if use_two_cols:
+            col_w = (content_w - col_gap) / 2.0
+            col_xs = [x0, x0 + col_w + col_gap]
+        else:
+            col_w = content_w
+            col_xs = [x0]
+
+        col_i = 0
+
+        def start_new_column_or_page() -> float:
+            nonlocal col_i, y_page_top
+            # second column first (same page)
+            if use_two_cols and col_i == 0:
+                col_i = 1
+                y2 = y_page_top
+                if st:
+                    c.setFont(opts.font_bold, opts.section_size)
+                    # place a small continuation title above the right column
+                    c.drawString(col_xs[col_i], y2 + (opts.section_size + 10), st + " (cont.)")
+                return y2
+
+            # otherwise: new page
+            col_i = 0
+            y2 = new_page()
+            y_page_top = y2
+            if st:
+                c.setFont(opts.font_bold, opts.section_size)
+                c.drawString(col_xs[0], y2, st + " (cont.)")
+                y2 -= (opts.section_size + 10)
+                y_page_top = y2
+            return y2
+
+        # Draw rows
+        for lvl, code, name in rows:
+            if y - row_h < margin:
+                y = start_new_column_or_page()
+
+            indent = (lvl - 1) * bullet_indent
+            x_base = col_xs[col_i]
+            line = f"• {code} — {name}".strip()
+            _draw_wrapped(
+                c,
+                x_base + indent,
+                y,
+                max(20.0, col_w - indent),
+                line_h + 10,
+                line,
+                opts.font_name,
+                opts,
+                bold=(lvl == 1),
+            )
+            y -= row_h
+
+        c.save()
+        return
+
+    # For the remaining templates we use a simple table renderer that already supports auto_two_columns.
+
+    # Group rows by level 1 headings
+    grouped: List[Tuple[Tuple[int, str, str], List[Tuple[int, str, str]]]] = []
+    cur_head: Optional[Tuple[int, str, str]] = None
+    cur_items: List[Tuple[int, str, str]] = []
+
+    for r in rows:
+        lvl, code, name = r
+        if lvl == 1:
+            if cur_head is not None:
+                grouped.append((cur_head, cur_items))
+            cur_head = r
+            cur_items = []
+        else:
+            cur_items.append(r)
+    if cur_head is not None:
+        grouped.append((cur_head, cur_items))
+
+    # Layout parameters
+    code_col_w = 90.0
+    name_col_w = content_w - code_col_w
+    line_h = 14.0
+    pad_y = 6.0
+    head_gap = 8.0
+
+    def draw_one_row(x: float, y: float, col_w: float, code_w: float, name_w: float, lvl: int, code: str, name: str) -> float:
+        nonlocal c
+        # font choices
+        if tid in {"modern_sans"}:
+            f_norm = opts.font_sans
+            f_bold = opts.font_sans_bold
+        else:
+            f_norm = opts.font_name
+            f_bold = opts.font_bold
+
+        if lvl == 1:
+            c.setFont(f_bold, opts.base_size + 1)
+        else:
+            c.setFont(f_norm, opts.base_size)
+
+        indent = 10.0 * (lvl - 1)
+        # code
+        c.setFont(f_bold if tid in {"code_first", "compact_card"} else f_norm, opts.base_size)
+        c.drawString(x + indent, y, code)
+        # name
+        c.setFont(f_norm, opts.base_size)
+        _draw_wrapped(c, x + indent + code_w, y, col_w - (indent + code_w), line_h + 10, name, f_norm, opts)
+        return y - (line_h + pad_y)
+
+    def total_height_for_groups(col_w: float) -> float:
+        # rough estimate
+        h = 0.0
+        for head, items in grouped:
+            h += (line_h + pad_y) + head_gap
+            h += len(items) * (line_h + pad_y)
+            h += head_gap
+        return h
+
+    y_start = y
+    col_height_available = y_start - margin
+
+    use_two_cols = False
+    if opts.auto_two_columns:
+        one_col_w = content_w
+        if total_height_for_groups(one_col_w) > col_height_available:
+            use_two_cols = True
+
+    col_gap = 18.0
+    if use_two_cols:
+        col_w = (content_w - col_gap) / 2.0
+        col_xs = [x0, x0 + col_w + col_gap]
+    else:
+        col_w = content_w
+        col_xs = [x0]
+
+    # table col widths in each column
+    code_col_w = min(code_col_w, col_w * 0.35)
+    name_col_w = col_w - code_col_w
+
+    col_i = 0
+    first_row = True
+
+    for head, items in grouped:
+        lvl1_row = head
+
+        # if we're too low, move to next column if possible, else new page
+        if y - (line_h + pad_y) < margin:
+            if use_two_cols and col_i == 0:
+                col_i = 1
+                y = y_start
+            else:
+                y = new_page()
+                y_start = y
+                col_i = 0
+
+        x_left = col_xs[col_i]
+
+        # Head row
+        y = draw_one_row(x_left, y, col_w, code_col_w, name_col_w, int(lvl1_row[0]), lvl1_row[1], lvl1_row[2])
+        y -= 2
+
+        for lvl, code, name in items:
+            if y - (line_h + pad_y) < margin:
+                if use_two_cols and col_i == 0:
+                    col_i = 1
+                    y = y_start
+                    x_left = col_xs[col_i]
+                else:
+                    y = new_page()
+                    y_start = y
+                    col_i = 0
+                    x_left = col_xs[col_i]
+
+                # repeat the current heading at top of next column/page (classic label behavior)
+                y = draw_one_row(x_left, y, col_w, code_col_w, name_col_w, int(lvl1_row[0]), lvl1_row[1], lvl1_row[2])
+                y -= 2
+
+            y = draw_one_row(x_left, y, col_w, code_col_w, name_col_w, lvl, code, name)
+
+        y -= head_gap
+        first_row = False
+
+    c.save()

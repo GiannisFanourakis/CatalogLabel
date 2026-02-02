@@ -1,0 +1,9 @@
+﻿LabelForge — Features
+
+• Tree-first hierarchy builder (Code + Name)
+• Fast editing with Rules Mode (Excel-style) and Free Typing
+• Cached autocomplete / suggestions for quicker entry
+• Print-ready PDF export with multiple templates
+• Clean open-source output (no watermarks)
+
+Tip: Build your hierarchy first, then export.
