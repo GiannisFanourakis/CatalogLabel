@@ -1,4 +1,4 @@
-﻿<img src="assets/logo/LabelForge-logo.jpeg" width="240" />
+﻿<img src="assets/logo/LabelForge_logo.jpeg" width="240" />
 
 # LabelForge (Windows)
 
