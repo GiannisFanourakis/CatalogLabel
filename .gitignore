@@ -1,6 +1,4 @@
-﻿# =========================
-# OS / Editor noise
-# =========================
+﻿# OS / Editor
 .DS_Store
 Thumbs.db
 desktop.ini
@@ -9,24 +7,19 @@ desktop.ini
 *.swp
 *.swo
 
-# =========================
 # Python
-# =========================
 __pycache__/
 *.py[cod]
 *$py.class
-
 .venv/
 venv/
 env/
 ENV/
-
 dist/
 build/
 *.egg-info/
 .eggs/
 *.whl
-
 .pytest_cache/
 .coverage
 .coverage.*
@@ -36,16 +29,12 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# =========================
 # PyInstaller
-# =========================
 *.spec
 /build/
 /dist/
 
-# =========================
 # Qt / PySide6
-# =========================
 *.qmlc
 *.jsc
 .qmake.stash
@@ -56,9 +45,8 @@ moc_*.cpp
 ui_*.py
 qrc_*.py
 
-# =========================
-# Local junk / runtime artifacts (DO NOT COMMIT)
-# =========================
+# Local-only workspace junk (keep on disk, never commit)
+_local/
 __dump__/
 dump/
 out/
@@ -68,19 +56,12 @@ export/
 reports/
 *.log
 
-# quarantine folder for anything you want to keep locally but never commit
-_local/
-
-# =========================
-# Inno Setup output (keep scripts, ignore compiled installers)
-# =========================
+# Inno Setup build output (keep scripts, ignore outputs)
 installer/Output/
 installer/**/*.exe
 installer/**/*.msi
 installer/**/*.zip
 installer/**/*.7z
 
-# =========================
 # Windows shortcuts
-# =========================
 *.lnk
