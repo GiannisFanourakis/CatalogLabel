@@ -65,3 +65,13 @@ installer/**/*.7z
 
 # Windows shortcuts
 *.lnk
+
+# Local audit dumps
+SRC_FILES.txt
+SRC_TREE.txt
+
+
+# Local audit dumps
+SRC_FILES.txt
+SRC_TREE.txt
+
