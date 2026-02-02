@@ -1,5 +1,11 @@
 ﻿<img src="assets/logo/LabelForge_logo.jpeg" width="240" />
 
+## Download
+
+➡️ **Windows installer:**  
+https://github.com/GiannisFanourakis/LabelForge/releases/latest
+
+
 # LabelForge (Windows)
 
 **Structured Label & Classification Generator**
