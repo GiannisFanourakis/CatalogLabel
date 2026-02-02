@@ -1,0 +1,112 @@
+﻿Folder PATH listing for volume Windows
+Volume serial number is CE11-F057
+C:\USERS\GIANA\DESKTOP\PERSONAL\NHMC\SPECIFY\SPECIFY MIGRATION\NHMC-LABELLING\SRC
+|   app.py
+|   __init__.py
+|   
++---domain
+|   |   models.py
+|   |   normalize.py
+|   |   units.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           models.cpython-311.pyc
+|           normalize.cpython-311.pyc
+|           units.cpython-311.pyc
+|           __init__.cpython-311.pyc
+|           
++---resources
+|   |   __init__.py
+|   |   
+|   \---icons
+|           __init__.py
+|           
++---services
+|   |   __init__.py
+|   |   
+|   +---cache
+|   |   |   cache_store.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           cache_store.cpython-311.pyc
+|   |           __init__.cpython-311.pyc
+|   |           
+|   +---export
+|   |   |   pdf_exporter.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           pdf_exporter.cpython-311.pyc
+|   |           __init__.cpython-311.pyc
+|   |           
+|   +---rules
+|   |   |   engine.py
+|   |   |   excel_loader.py
+|   |   |   rules_types.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           engine.cpython-311.pyc
+|   |           excel_loader.cpython-311.pyc
+|   |           rules_types.cpython-311.pyc
+|   |           __init__.cpython-311.pyc
+|   |           
+|   \---__pycache__
+|           __init__.cpython-311.pyc
+|           
++---ui
+|   |   __init__.py
+|   |   
+|   +---qt
+|   |   |   main_window.py
+|   |   |   theme.py
+|   |   |   __init__.py
+|   |   |   
+|   |   +---dialogs
+|   |   |   |   startup_setup_dialog.py
+|   |   |   |   __init__.py
+|   |   |   |   
+|   |   |   \---__pycache__
+|   |   |           startup_setup_dialog.cpython-311.pyc
+|   |   |           __init__.cpython-311.pyc
+|   |   |           
+|   |   +---views
+|   |   |   |   label_editor_view.py
+|   |   |   |   __init__.py
+|   |   |   |   
+|   |   |   \---__pycache__
+|   |   |           label_editor_view.cpython-311.pyc
+|   |   |           __init__.cpython-311.pyc
+|   |   |           
+|   |   +---widgets
+|   |   |   |   autocomplete_combo.py
+|   |   |   |   hierarchy_editor.py
+|   |   |   |   level_row_widget.py
+|   |   |   |   pdf_template_dialog.py
+|   |   |   |   __init__.py
+|   |   |   |   
+|   |   |   \---__pycache__
+|   |   |           autocomplete_combo.cpython-311.pyc
+|   |   |           hierarchy_editor.cpython-311.pyc
+|   |   |           level_row_widget.cpython-311.pyc
+|   |   |           pdf_template_dialog.cpython-311.pyc
+|   |   |           __init__.cpython-311.pyc
+|   |   |           
+|   |   \---__pycache__
+|   |           main_window.cpython-311.pyc
+|   |           theme.cpython-311.pyc
+|   |           __init__.cpython-311.pyc
+|   |           __init__.py
+|   |           
+|   \---__pycache__
+|           main_window.cpython-311.pyc
+|           __init__.cpython-311.pyc
+|           __init__.py
+|           
+\---__pycache__
+        app.cpython-311.pyc
+        __init__.cpython-311.pyc
+        __init__.py
+        
