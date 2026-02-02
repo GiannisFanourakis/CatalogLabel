@@ -1,22 +1,24 @@
 ﻿# Python
 __pycache__/
 *.py[cod]
-*.pyd
-*.pyo
-*.egg-info/
-build/
-dist/
 
 # Virtual environments
 .venv/
 venv/
 
-# OS / Editor
-Thumbs.db
-.DS_Store
-.vscode/
-.idea/
+# Build / packaging
+build/
+dist/
+*.spec
 
-# Logs / cache
+# OS junk
+.DS_Store
+Thumbs.db
+
+# App-generated artifacts (DO NOT COMMIT)
+_dump_/
+labels.pdf
+*.pdf
+
+# Logs / temp
 *.log
-.cache/
