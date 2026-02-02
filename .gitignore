@@ -1,26 +1,86 @@
-﻿# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Virtual env
-.venv/
-venv/
-
-# Build artifacts
-build/
-dist/
-*.spec
-output/
-installer/output/
-
-# Runtime artifacts
-_dump_/
-*.pdf
-
-# OS / IDE
+﻿# =========================
+# OS / Editor noise
+# =========================
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+ENV/
+
+dist/
+build/
+*.egg-info/
+.eggs/
+*.whl
+
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+
+# =========================
+# PyInstaller
+# =========================
+*.spec
+/build/
+/dist/
+
+# =========================
+# Qt / PySide6
+# =========================
+*.qmlc
+*.jsc
+.qmake.stash
+*.pro.user
+*.user
+*.user.*
+moc_*.cpp
+ui_*.py
+qrc_*.py
+
+# =========================
+# Local junk / runtime artifacts (DO NOT COMMIT)
+# =========================
+__dump__/
+dump/
+out/
+output/
+exports/
+export/
+reports/
+*.log
+
+# quarantine folder for anything you want to keep locally but never commit
+_local/
+
+# =========================
+# Inno Setup output (keep scripts, ignore compiled installers)
+# =========================
+installer/Output/
+installer/**/*.exe
+installer/**/*.msi
+installer/**/*.zip
+installer/**/*.7z
+
+# =========================
+# Windows shortcuts
+# =========================
+*.lnk
