@@ -1,21 +1,21 @@
-﻿<img src="assets/logo/LabelForge_logo.jpeg" width="240" />
+﻿<img src="assets/logo/CatalogLabel_logo.jpeg" width="240" />
 
 ## Download
 
 ➡️ **Windows installer:**  
-https://github.com/GiannisFanourakis/LabelForge/releases/latest
+https://github.com/GiannisFanourakis/CatalogLabel/releases/latest
 
 
-# LabelForge (Windows)
+# CatalogLabel
 
-**Structured Label & Classification Generator**
+**CatalogLabel** is a Windows desktop application for building and exporting
+hierarchical catalog labels and classification structures.
 
-LabelForge is a Windows desktop application for creating **clean, consistent, and professionally formatted labels** based on **hierarchical classification structures**.  
 It supports **Free Typing** and **Rules Mode (Excel)**, and exports **print-ready PDF labels** using formal templates.
 
 ---
 
-## What LabelForge Does
+## What CatalogLabel Does
 
 ### Build a hierarchy (Levels 1–4)
 - Labels are created as a **tree** with up to four levels.
@@ -83,16 +83,16 @@ You can also set an optional **Section Title** above the hierarchy:
 ## Installing (Windows)
 
 ### Option A — Installer (recommended)
-1. Download the latest LabelForge installer (`LabelForge-Setup.exe`)
+1. Download the latest CatalogLabel installer (`CatalogLabel-Setup.exe`)
 2. Run the installer
-3. Launch LabelForge from:
+3. Launch CatalogLabel from:
    - Start Menu, or
    - Desktop shortcut (if enabled)
 
 ### Option B — Portable build (if provided)
 1. Download the portable zip
-2. Extract anywhere (e.g., `C:\Apps\LabelForge`)
-3. Run `LabelForge.exe`
+2. Extract anywhere (e.g., `C:\Apps\CatalogLabel`)
+3. Run `CatalogLabel.exe`
 
 ---
 
@@ -114,7 +114,7 @@ In **Rules Mode**, you will load a rules workbook.
 
 ## Rules Mode (Excel)
 
-LabelForge supports a rules-driven workflow using Excel authority files.
+CatalogLabel supports a rules-driven workflow using Excel authority files.
 
 Included examples:
 - `examples/rules/Rules_Example_SIMPLE.xlsx` – minimal, human-friendly authority format
@@ -127,7 +127,7 @@ Load these via **Rules Mode → Load Excel…** inside the application.
 
 ## Data & Cache
 
-LabelForge stores a local autocomplete cache so typing gets faster over time.
+CatalogLabel stores a local autocomplete cache so typing gets faster over time.
 
 Typical contents:
 - Previously used codes and names per level
@@ -157,7 +157,7 @@ This is usually your PDF viewer’s search highlighting (not part of the PDF).
 ---
 
 ## Intended Use
-LabelForge is domain-agnostic and suitable for:
+CatalogLabel is domain-agnostic and suitable for:
 - museums and collections
 - archives and libraries
 - research labs
@@ -171,15 +171,15 @@ LabelForge is domain-agnostic and suitable for:
 Bug reports, suggestions, and real-world use cases are welcome.
 
 Please open an issue:
-https://github.com/GiannisFanourakis/LabelForge/issues
+https://github.com/GiannisFanourakis/CatalogLabel/issues
 
 
 ---
 
 
-## Support LabelForge
+## Support CatalogLabel
 
-LabelForge is **free and open-source software**.
+CatalogLabel is **free and open-source software**.
 
 If you find it useful and would like to support its continued development, you may choose to make a **voluntary donation**.
 
@@ -194,6 +194,8 @@ Donations are **optional** and do not affect your rights under the license.
 
 ## License
 
-LabelForge is released under the **MIT License**.
+CatalogLabel is released under the **MIT License**.
 
 You are free to use, modify, and distribute this software, including for commercial purposes, provided the license terms are respected.
+
+
