@@ -1,6 +1,6 @@
 ﻿THIRD-PARTY SOFTWARE NOTICES
 
-LabelForge includes the following third-party software components.
+CatalogLabel includes the following third-party software components.
 Each component is distributed under its own license.
 
 ------------------------------------------------------------
@@ -18,7 +18,7 @@ License: LGPL v3
 https://www.qt.io/licensing/
 
 Note:
-LabelForge dynamically links against Qt via PySide6 and complies
+CatalogLabel dynamically links against Qt via PySide6 and complies
 with the LGPL v3 by allowing replacement of the Qt libraries.
 
 ------------------------------------------------------------
@@ -65,3 +65,4 @@ https://jrsoftware.org/isinfo.php
 
 This file is provided for informational purposes only.
 The full license texts can be found on the respective project websites.
+

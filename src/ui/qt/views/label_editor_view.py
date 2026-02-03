@@ -67,7 +67,7 @@ class LabelEditorView(QWidget):
         outer.setContentsMargins(12, 12, 12, 12)
         outer.setSpacing(10)
 
-        title = QLabel("LabelForge")
+        title = QLabel("CatalogLabel")
         title.setObjectName("Title")
         outer.addWidget(title, 0)
 
@@ -501,3 +501,4 @@ class LabelEditorView(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", str(e))
             self.status.setText("Export failed.")
+

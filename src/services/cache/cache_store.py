@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List
 
 
-APP_FOLDER = "LabelForge"
+APP_FOLDER = "CatalogLabel"
 LEGACY_APP_FOLDER = "LabelApp"
 CACHE_FILENAME = "cache.json"
 
@@ -108,3 +108,4 @@ def suggest(db: CacheDB, field: str, prefix: str, limit: int = 12) -> List[str]:
     contains = [x for x in items if (p in x.lower()) and not x.lower().startswith(p)]
     out = starts + contains
     return out[:limit]
+

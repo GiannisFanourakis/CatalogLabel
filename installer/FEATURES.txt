@@ -1,4 +1,4 @@
-﻿LabelForge — Features
+﻿CatalogLabel — Features
 
 • Tree-first hierarchy builder (Code + Name)
 • Fast editing with Rules Mode (Excel-style) and Free Typing
@@ -7,3 +7,4 @@
 • Clean open-source output (no watermarks)
 
 Tip: Build your hierarchy first, then export.
+

@@ -17,3 +17,4 @@ class LabelDocument:
     cabinet_section: str = ""
     level1: LevelEntry = field(default_factory=lambda: LevelEntry(level=1))
     level2_list: List[LevelEntry] = field(default_factory=list)
+

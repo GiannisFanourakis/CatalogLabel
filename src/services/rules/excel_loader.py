@@ -280,3 +280,4 @@ def load_rules_xlsx(path: str | Path) -> RulesWorkbook:
 
     # Otherwise try the simple authority workbook format.
     return _parse_simple_authority_format(wb)
+

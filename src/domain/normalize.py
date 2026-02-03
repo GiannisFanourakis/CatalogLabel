@@ -25,3 +25,4 @@ def expand_child_code(parent_code: str, child_code: str, delimiter: str = ".") -
 
     suffix = str(int(m.group(1)))  # "06" -> "6"
     return f"{p}{delimiter}{suffix}"
+

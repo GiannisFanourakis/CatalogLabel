@@ -180,3 +180,4 @@ def apply_museum_theme(app: QApplication) -> None:
 
     app.setPalette(pal)
     app.setStyleSheet(MUSEUM_QSS)
+

@@ -32,3 +32,4 @@ class LevelRowWidget(QWidget):
 
     def lock_name(self, locked: bool) -> None:
         self.cbo_name.set_locked(locked)
+

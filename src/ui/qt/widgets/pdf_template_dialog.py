@@ -421,3 +421,4 @@ class PdfTemplateDialog(QDialog):
 
         p.end()
         self.preview.setPixmap(pm)
+

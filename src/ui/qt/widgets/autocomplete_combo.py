@@ -33,3 +33,4 @@ class AutoCompleteCombo(QComboBox):
         if self.isEditable() and self.lineEdit() is not None:
             self.lineEdit().setReadOnly(self._locked)
         self.setEnabled(True)  # keep visible even when locked
+

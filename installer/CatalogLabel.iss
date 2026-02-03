@@ -1,11 +1,11 @@
-﻿#define MyAppName "LabelForge"
+﻿#define MyAppName "CatalogLabel"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Ioannis Fanourakis"
-#define MyAppExeName "LabelForge.exe"
+#define MyAppExeName "CatalogLabel.exe"
 #define MyAppURL "https://github.com/GiannisFanourakis"
 
 [Setup]
-AppId={{ioannisfanourakis.labelforge}
+AppId={{ioannisfanourakis.CatalogLabel}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -20,13 +20,13 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 
 OutputDir=Output
-OutputBaseFilename=LabelForge_{#MyAppVersion}_Setup
+OutputBaseFilename=CatalogLabel_{#MyAppVersion}_Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 
 ; Icons
-SetupIconFile=..\src\resources\icons\labelforge.ico
+SetupIconFile=..\src\resources\icons\CatalogLabel.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Branding images
@@ -61,7 +61,7 @@ Name: "desktopicon"; Description: "Create a &Desktop icon"; GroupDescription: "A
 
 [Files]
 ; Frozen build
-Source: "..\dist\LabelForge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\CatalogLabel\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; OSS docs
 Source: "..\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -74,3 +74,7 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+
+
+

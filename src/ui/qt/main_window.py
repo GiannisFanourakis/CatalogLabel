@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src import __version__
+from src.app_info import APP_NAME, APP_AUTHOR, APP_URL
 from src.ui.qt.views.label_editor_view import LabelEditorView
 
 
@@ -23,7 +24,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
-        self.setWindowTitle("LabelForge")
+        self.setWindowTitle(APP_NAME)
 
         central = QWidget(self)
         layout = QVBoxLayout(central)
@@ -77,10 +78,15 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "About",
-            f"LabelForge v{__version__}\n\n"
+            f"CatalogLabel v{__version__}\n\n"
             "Structured label & classification generator.\n"
             "Free Typing and Rules Mode (Excel).\n"
             "Exports print-ready PDFs.\n\n"
             "Created by Ioannis Fanourakis\n"
             "Open-source software.",
         )
+
+
+
+
+

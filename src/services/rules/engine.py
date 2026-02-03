@@ -23,3 +23,4 @@ def default_children_for(
         return []
     key = (profile_id, parent_level, (parent_code or "").strip().lower(), child_level)
     return list(rules.default_children.get(key, []))
+

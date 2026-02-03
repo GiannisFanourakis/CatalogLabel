@@ -199,3 +199,4 @@ CatalogLabel is released under the **MIT License**.
 You are free to use, modify, and distribute this software, including for commercial purposes, provided the license terms are respected.
 
 
+

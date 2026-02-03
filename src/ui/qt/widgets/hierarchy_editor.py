@@ -484,3 +484,4 @@ class HierarchyEditor(QWidget):
                 self._on_change(level, code, (item.text(self.COL_NAME) or "").strip())
             except Exception:
                 pass
+

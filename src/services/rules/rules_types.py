@@ -45,3 +45,4 @@ class RulesWorkbook:
 
     def get_profile(self, profile_id: str) -> Optional[RulesProfile]:
         return self.profiles.get(profile_id)
+

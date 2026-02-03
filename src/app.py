@@ -28,8 +28,8 @@ def _icon_from_resources() -> Optional[QIcon]:
     try:
         from importlib.resources import files  # py3.9+
         base = files("src.resources.icons")
-        ico = base / "labelforge.ico"
-        png = base / "labelforge.png"
+        ico = base / "CatalogLabel.ico"
+        png = base / "CatalogLabel.png"
 
         if ico.is_file():
             return QIcon(str(ico))
@@ -43,11 +43,11 @@ def _icon_from_resources() -> Optional[QIcon]:
 def main() -> int:
     app = QApplication(sys.argv)
 
-    app.setApplicationName("LabelForge")
+    app.setApplicationName("CatalogLabel")
     app.setOrganizationName("Ioannis Fanourakis")
     app.setOrganizationDomain("")
 
-    _set_windows_app_id("ioannisfanourakis.labelforge")
+    _set_windows_app_id("ioannisfanourakis.CatalogLabel")
 
     apply_museum_theme(app)
 
@@ -66,3 +66,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
