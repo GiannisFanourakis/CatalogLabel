@@ -75,3 +75,14 @@ SRC_TREE.txt
 SRC_FILES.txt
 SRC_TREE.txt
 
+
+# Local audit/dumps
+SRC_FILES.txt
+SRC_TREE.txt
+_local/
+
+
+# Build outputs
+dist/
+build/
+
