@@ -112,6 +112,19 @@ In **Rules Mode**, you will load a rules workbook.
 
 ---
 
+## Rules Mode (Excel)
+
+LabelForge supports a rules-driven workflow using Excel authority files.
+
+Included examples:
+- `examples/rules/Rules_Example_SIMPLE.xlsx` – minimal, human-friendly authority format
+- `examples/rules/Rules_Example_RANDOM.xlsx` – multi-level hierarchy example
+
+Load these via **Rules Mode → Load Excel…** inside the application.
+
+
+---
+
 ## Data & Cache
 
 LabelForge stores a local autocomplete cache so typing gets faster over time.
