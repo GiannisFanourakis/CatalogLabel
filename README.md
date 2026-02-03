@@ -166,6 +166,17 @@ LabelForge is domain-agnostic and suitable for:
 
 ---
 
+## Feedback
+
+Bug reports, suggestions, and real-world use cases are welcome.
+
+Please open an issue:
+https://github.com/GiannisFanourakis/LabelForge/issues
+
+
+---
+
+
 ## Support LabelForge
 
 LabelForge is **free and open-source software**.
