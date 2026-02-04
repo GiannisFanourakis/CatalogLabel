@@ -1,9 +1,9 @@
 ﻿from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QStringListModel
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget,
@@ -21,15 +21,16 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QSizePolicy,
     QDialog,
+    QCompleter,
 )
 
 from reportlab.lib.pagesizes import A4, A5
 
 from src.domain.models import LabelDocument
 from src.domain.units import cm_to_pt
-from src.domain.normalize import expand_child_code
 from src.services.cache.cache_store import load_cache, save_cache, remember, suggest
 from src.services.rules.excel_loader import load_rules_xlsx
+from src.services.rules.exceptions import RulesWorkbookError
 from src.services.rules.engine import lookup_mapping
 from src.services.rules.rules_types import RulesWorkbook, RulesProfile
 from src.services.export.pdf_exporter import export_label_pdf, PdfExportOptions
@@ -38,6 +39,16 @@ from src.ui.qt.widgets.pdf_template_dialog import PdfTemplateDialog
 
 
 class LabelEditorView(QWidget):
+    """
+    Meta fields are scalar in CacheDB.values:
+      - title (str)
+      - cabinet_section (str)
+
+    History lists live under:
+      - title_history (list[str])
+      - cabinet_history (list[str])
+    """
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -53,11 +64,112 @@ class LabelEditorView(QWidget):
         self._last_template_id: str = "classic"
         self._last_section_title: str = ""
 
+        self._sanitize_meta_cache()
+
         self._build_ui()
         self._wire()
 
         self._apply_mode_ui()
         self._refresh_hierarchy_providers()
+        self._refresh_meta_completers()
+
+    # ---------------- Cache helpers ----------------
+    def _values(self) -> Dict[str, Any]:
+        v = getattr(self.cache, "values", None)
+        return v if isinstance(v, dict) else {}
+
+    def _coerce_text(self, v: Any, default: str = "") -> str:
+        try:
+            if isinstance(v, list):
+                for item in reversed(v):
+                    s = str(item or "").strip()
+                    if s:
+                        return s
+                return default
+            if v is None:
+                return default
+            return str(v)
+        except Exception:
+            return default
+
+    def _cache_read_text(self, key: str, default: str = "") -> str:
+        vals = self._values()
+        return self._coerce_text(vals.get(key, default), default=default)
+
+    def _cache_write_text(self, key: str, value: str) -> None:
+        vals = self._values()
+        vals[key] = str(value or "")
+
+    def _cache_read_list(self, key: str) -> List[str]:
+        """
+        Read a list[str] from CacheDB.values safely.
+        If corrupted (stringified list), return [] to avoid char-iteration.
+        """
+        vals = self._values()
+        v = vals.get(key, None)
+        if isinstance(v, list):
+            out: List[str] = []
+            for x in v:
+                s = str(x or "").strip()
+                if s:
+                    out.append(s)
+            # unique preserve order (last wins not needed here)
+            seen = set()
+            uniq = []
+            for s in out:
+                if s not in seen:
+                    seen.add(s)
+                    uniq.append(s)
+            return uniq
+        return []
+
+    def _sanitize_meta_cache(self) -> None:
+        """
+        Fix broken states where title/cabinet_section became garbage:
+        - single bracket characters like "]" or "["
+        - stringified lists like "['a','b']"
+        - accidental list values
+
+        Also ensures history keys are lists, not strings.
+        """
+        vals = self._values()
+
+        def is_junk_scalar(s: str) -> bool:
+            t = (s or "").strip()
+            if t in ("[", "]", "[]", "]['", "'[", "']"):
+                return True
+            # common artifacts of stringified lists
+            if t.startswith("[") and t.endswith("]") and ("'" in t or '"' in t or "," in t):
+                return True
+            return False
+
+        # normalize meta scalars
+        for key in ("title", "cabinet_section"):
+            v = vals.get(key, "")
+            if isinstance(v, list):
+                v = self._coerce_text(v, default="")
+            v = str(v or "")
+            if is_junk_scalar(v):
+                vals[key] = ""
+            else:
+                vals[key] = v
+
+        # normalize history keys
+        for hkey in ("title_history", "cabinet_history"):
+            hv = vals.get(hkey, None)
+            if isinstance(hv, str):
+                # don't try to parse, just drop corrupted string history
+                vals[hkey] = []
+            elif isinstance(hv, list):
+                cleaned = []
+                for item in hv:
+                    s = str(item or "").strip()
+                    if not s or is_junk_scalar(s):
+                        continue
+                    cleaned.append(s)
+                vals[hkey] = cleaned
+            elif hv is None:
+                vals[hkey] = []
 
     # ---------------- UI ----------------
     def _build_ui(self) -> None:
@@ -110,10 +222,25 @@ class LabelEditorView(QWidget):
         self.ed_cab = QLineEdit()
         self.ed_cab.setPlaceholderText("e.g. Collection Room A / Cabinet 12")
 
+        # Proper completers (no stringified list nonsense)
+        self._title_model = QStringListModel([])
+        self._cab_model = QStringListModel([])
+
+        self._title_completer = QCompleter(self._title_model, self)
+        self._title_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._title_completer.setFilterMode(Qt.MatchContains)
+        self.ed_title.setCompleter(self._title_completer)
+
+        self._cab_completer = QCompleter(self._cab_model, self)
+        self._cab_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._cab_completer.setFilterMode(Qt.MatchContains)
+        self.ed_cab.setCompleter(self._cab_completer)
+
         info_form.addRow("Title", self.ed_title)
         info_form.addRow("Cabinet Section", self.ed_cab)
         outer.addWidget(info, 0)
 
+        # ---------- Label Size (restored) ----------
         size = QGroupBox("Label Size")
         size_form = QFormLayout(size)
         size_form.setLabelAlignment(Qt.AlignLeft)
@@ -137,66 +264,206 @@ class LabelEditorView(QWidget):
         size_form.addRow("H (cm)", self.sp_h_cm)
         outer.addWidget(size, 0)
 
-        content = QGroupBox("Label Content")
-        content_lay = QVBoxLayout(content)
-        content_lay.setContentsMargins(10, 10, 10, 10)
-        content_lay.setSpacing(8)
+        hier = QGroupBox("Hierarchy")
+        hier_lay = QVBoxLayout(hier)
+        hier_lay.setContentsMargins(10, 10, 10, 10)
+        hier_lay.setSpacing(8)
 
-        self.hierarchy = HierarchyEditor()
-        self.hierarchy.set_level_names(self.level_labels[1], self.level_labels[2], self.level_labels[3], self.level_labels[4])
-        content_lay.addWidget(self.hierarchy, 1)
-        outer.addWidget(content, 1)
-
-        footer = QHBoxLayout()
-        footer.setSpacing(8)
-        outer.addLayout(footer, 0)
+        self.hierarchy = HierarchyEditor(self)
+        hier_lay.addWidget(self.hierarchy, 1)
+        outer.addWidget(hier, 1)
 
         self.status = QLabel("Ready.")
-        self.status.setObjectName("Status")
-        footer.addWidget(self.status, 1)
+        self.status.setStyleSheet("color: #bdb7aa;")
+        outer.addWidget(self.status, 0)
 
         self._on_custom_size_toggled(self.chk_custom_size.isChecked())
 
     def _wire(self) -> None:
-        self.mode.currentIndexChanged.connect(lambda _i: self._apply_mode_ui())
-        self.btn_load_rules.clicked.connect(self._on_load_rules)
+        self.mode.currentIndexChanged.connect(lambda _i: self._on_mode_changed())
+        self.btn_load_rules.clicked.connect(self._load_rules_clicked)
         self.cbo_profile.currentIndexChanged.connect(lambda _i: self._on_profile_changed())
-
-        self.btn_export_pdf.clicked.connect(self._export_pdf_clicked)
-        self.btn_save_cache.clicked.connect(self._save_cache_clicked)
 
         self.chk_custom_size.toggled.connect(self._on_custom_size_toggled)
 
-        self.ed_title.textEdited.connect(lambda _t: self._remember_free_typing_meta())
-        self.ed_cab.textEdited.connect(lambda _t: self._remember_free_typing_meta())
+        self.btn_save_cache.clicked.connect(self._save_cache_clicked)
+        self.btn_export_pdf.clicked.connect(self._export_pdf_clicked)
 
-        self.hierarchy.set_on_change(self._on_hierarchy_changed)
+        # scalar current values + history lists
+        self.ed_title.textChanged.connect(lambda t: self._on_meta_changed("title", "title_history", t))
+        self.ed_cab.textChanged.connect(lambda t: self._on_meta_changed("cabinet_section", "cabinet_history", t))
 
-    # ---------------- Helpers ----------------
+    def _on_meta_changed(self, key_current: str, key_history: str, text: str) -> None:
+        txt = str(text or "")
+        self._cache_write_text(key_current, txt)
+        if txt.strip():
+            remember(self.cache, key_history, txt.strip(), limit=200)
+            self._refresh_meta_completers()
+
+    def _refresh_meta_completers(self) -> None:
+        """
+        Rebuild QCompleter lists from history lists.
+        This prevents the ']' char suggestion bug.
+        """
+        titles = self._cache_read_list("title_history")
+        cabs = self._cache_read_list("cabinet_history")
+
+        # show newest first (more useful)
+        titles = list(reversed(titles))[:200]
+        cabs = list(reversed(cabs))[:200]
+
+        self._title_model.setStringList(titles)
+        self._cab_model.setStringList(cabs)
+
+    # ---------------- Mode & rules ----------------
     def _rules_on(self) -> bool:
         return self.mode.currentIndex() == 1 and self.rules is not None and self.profile is not None
 
-    def _delimiter(self) -> str:
-        if self.profile and getattr(self.profile, "code_delimiter", None):
-            return self.profile.code_delimiter
-        return "."
+    def _apply_mode_ui(self) -> None:
+        self.ed_title.setText(self._cache_read_text("title", ""))
+        self.ed_cab.setText(self._cache_read_text("cabinet_section", ""))
 
-    def _pad_level1(self) -> int:
+        rules_ready = (self.rules is not None and len(self.rules.profiles) > 0)
+        self.cbo_profile.setEnabled(self.mode.currentIndex() == 1 and rules_ready)
+        self.btn_load_rules.setEnabled(self.mode.currentIndex() == 1)
+
+        if self.profile is not None:
+            try:
+                self.level_labels = dict(self.profile.level_labels or self.level_labels)
+            except Exception:
+                pass
+
+        self.hierarchy.set_level_names(
+            self.level_labels.get(1, "Level 1"),
+            self.level_labels.get(2, "Level 2"),
+            self.level_labels.get(3, "Level 3"),
+            self.level_labels.get(4, "Level 4"),
+        )
+
+        if self.profile is not None:
+            self.hierarchy.set_rules_normalization(self.profile.code_delimiter or ".", 2)
+        else:
+            self.hierarchy.set_rules_normalization(".", 2)
+
+    def _refresh_hierarchy_providers(self) -> None:
+        self.hierarchy.set_providers(self._suggest_codes, self._suggest_names, self._lookup_code)
+        self.hierarchy.set_on_change(self._on_hierarchy_change)
+
+    def _on_mode_changed(self) -> None:
+        self._apply_mode_ui()
+        self._refresh_hierarchy_providers()
+
+    def _load_rules_clicked(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Load Rules Workbook", "", "Excel (*.xlsx)")
+        if not path:
+            return
+
         try:
-            if self.rules and getattr(self.rules, "settings", None):
-                v = str(self.rules.settings.get("pad_level1", "2") or "2")
-                n = int(v)
-                return max(1, min(n, 6))
-        except Exception:
-            pass
-        return 2
+            wb = load_rules_xlsx(path)
+            self.rules = wb
+            self.rules_path = Path(path)
 
+            self.cbo_profile.clear()
+            for pid, prof in wb.profiles.items():
+                self.cbo_profile.addItem(prof.profile_name, userData=pid)
+
+            self.cbo_profile.setEnabled(True)
+            self.status.setText(f"Loaded rules: {Path(path).name}")
+        except RulesWorkbookError as e:
+            QMessageBox.critical(
+                self,
+                "Rules workbook not valid",
+                str(e)
+                + "\n\nHow to fix:"
+                + "\n- Simple workbook requires sheets: 'Profile' and 'Level 1'"
+                + "\n- Legacy workbook requires sheet: 'Profiles'"
+                + "\n\nTip: In Excel, right-click sheet tab → Rename."
+            )
+            self.status.setText("Rules load failed (invalid workbook format).")
+            return
+
+        except Exception as e:
+            QMessageBox.critical(self, "Load failed", str(e))
+            self.rules = None
+            self.profile = None
+            self.rules_path = None
+            self.cbo_profile.clear()
+            self.cbo_profile.setEnabled(False)
+            self.status.setText("Load failed.")
+
+        self._apply_mode_ui()
+        self._refresh_hierarchy_providers()
+
+    def _on_profile_changed(self) -> None:
+        if self.rules is None:
+            self.profile = None
+            self._apply_mode_ui()
+            self._refresh_hierarchy_providers()
+            return
+
+        pid = self.cbo_profile.currentData()
+        if not pid:
+            self.profile = None
+        else:
+            self.profile = self.rules.get_profile(str(pid))
+
+        self._apply_mode_ui()
+        self._refresh_hierarchy_providers()
+        self.status.setText("Profile selected." if self.profile else "No profile selected.")
+
+    # ---------------- Hierarchy callbacks ----------------
+    def _on_hierarchy_change(self, level: int, code: str, name: str) -> None:
+        if code.strip():
+            remember(self.cache, f"level{level}_codes", code.strip(), limit=500)
+        if name.strip():
+            remember(self.cache, f"level{level}_names", name.strip(), limit=500)
+
+    def _suggest_codes(self, level: int, prefix: str, parent_code: str = "") -> List[str]:
+        prefix = (prefix or "").strip()
+        if self._rules_on() and self.rules and self.profile:
+            try:
+                out = lookup_mapping(self.rules, self.profile.profile_id, level, prefix)
+                if isinstance(out, list):
+                    return [str(x) for x in out][:200]
+            except Exception:
+                pass
+        return suggest(self.cache, f"level{level}_codes", prefix, limit=200)
+
+    def _suggest_names(self, level: int, prefix: str, parent_code: str = "") -> List[str]:
+        prefix = (prefix or "").strip()
+        if self._rules_on() and self.rules and self.profile:
+            try:
+                out = lookup_mapping(self.rules, self.profile.profile_id, level, prefix)
+                if isinstance(out, list):
+                    return [str(x) for x in out][:200]
+            except Exception:
+                pass
+        return suggest(self.cache, f"level{level}_names", prefix, limit=200)
+
+    def _lookup_code(self, level: int, code: str, parent_code: str = "") -> Optional[LookupResult]:
+        code = (code or "").strip()
+        if not code:
+            return None
+
+        if self._rules_on() and self.rules and self.profile:
+            try:
+                mr = lookup_mapping(self.rules, self.profile.profile_id, level, code)
+                if mr is not None and hasattr(mr, "name"):
+                    return LookupResult(
+                        name=str(getattr(mr, "name", "") or ""),
+                        locked=bool(getattr(mr, "locked", False)),
+                    )
+            except Exception:
+                pass
+        return None
+
+    # ---------------- Size (restored) ----------------
     def _on_custom_size_toggled(self, on: bool) -> None:
-        self.sp_w_cm.setEnabled(on)
-        self.sp_h_cm.setEnabled(on)
-        self.cbo_size_preset.setEnabled(not on)
+        self.sp_w_cm.setEnabled(bool(on))
+        self.sp_h_cm.setEnabled(bool(on))
+        self.cbo_size_preset.setEnabled(not bool(on))
 
-    def _current_pagesize_pts(self) -> tuple[float, float]:
+    def _current_pagesize_pts(self) -> Tuple[float, float]:
         if self.chk_custom_size.isChecked():
             return (cm_to_pt(self.sp_w_cm.value()), cm_to_pt(self.sp_h_cm.value()))
 
@@ -213,236 +480,7 @@ class LabelEditorView(QWidget):
             return (h, w)
         return A4
 
-    # ---------------- Mode ----------------
-    def _apply_mode_ui(self) -> None:
-        rules_mode = (self.mode.currentIndex() == 1)
-        self.btn_load_rules.setVisible(rules_mode)
-        self.cbo_profile.setVisible(rules_mode)
-
-        if not rules_mode:
-            self.profile = None
-            self.level_labels = {1: "Level 1", 2: "Level 2", 3: "Level 3", 4: "Level 4"}
-            self.hierarchy.set_level_names(self.level_labels[1], self.level_labels[2], self.level_labels[3], self.level_labels[4])
-            self.hierarchy.set_rules_normalization(".", 2)
-            self.status.setText("Free Typing Mode ON.")
-            self._refresh_hierarchy_providers()
-        else:
-            self.status.setText("Rules Mode ON. Load an Excel rules file.")
-            self._refresh_hierarchy_providers()
-
-    # ---------------- Rules loading ----------------
-    def load_rules_from_path(self, path: str) -> bool:
-        try:
-            self.rules = load_rules_xlsx(path)
-            self.rules_path = Path(path)
-        except Exception as e:
-            QMessageBox.critical(self, "Load Excel Failed", str(e))
-            self.rules = None
-            self.profile = None
-            self.rules_path = None
-            self.cbo_profile.clear()
-            self.cbo_profile.setEnabled(False)
-            self.btn_load_rules.setText("Load Excel…")
-            self._refresh_hierarchy_providers()
-            return False
-
-        self.cbo_profile.blockSignals(True)
-        self.cbo_profile.clear()
-
-        try:
-            profiles = getattr(self.rules, "profiles", {}) or {}
-            for pid, prof in sorted(profiles.items(), key=lambda kv: str(kv[0]).lower()):
-                name = getattr(prof, "profile_name", str(pid))
-                self.cbo_profile.addItem(f"{name} ({pid})", userData=pid)
-        finally:
-            self.cbo_profile.blockSignals(False)
-
-        self.cbo_profile.setEnabled(self.cbo_profile.count() > 0)
-
-        if self.cbo_profile.count() > 0:
-            self.cbo_profile.setCurrentIndex(0)
-            self._apply_profile(self.cbo_profile.currentData())
-
-        self.status.setText(f"Loaded Excel: {self.rules_path.name}")
-        self.btn_load_rules.setText("Change Excel…")
-
-        self._refresh_hierarchy_providers()
-        return True
-
-    def _on_load_rules(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Load rules.xlsx", str(Path.cwd()), "Excel (*.xlsx)")
-        if not path:
-            return
-        self.load_rules_from_path(path)
-
-    def _on_profile_changed(self) -> None:
-        pid = self.cbo_profile.currentData()
-        if pid:
-            self._apply_profile(pid)
-
-    def _apply_profile(self, profile_id: str) -> None:
-        if not self.rules or not profile_id:
-            return
-
-        prof = self.rules.get_profile(profile_id)
-        if not prof:
-            return
-
-        self.profile = prof
-
-        labels = getattr(prof, "level_labels", {}) or {}
-        self.level_labels = {
-            1: labels.get(1, "Level 1"),
-            2: labels.get(2, "Level 2"),
-            3: labels.get(3, "Level 3"),
-            4: labels.get(4, "Level 4"),
-        }
-
-        self.hierarchy.set_level_names(self.level_labels[1], self.level_labels[2], self.level_labels[3], self.level_labels[4])
-
-        settings = getattr(self.rules, "settings", {}) or {}
-        if settings.get("title_default"):
-            self.ed_title.setText(settings["title_default"])
-
-        self.status.setText(f"Profile: {getattr(prof,'profile_name','')}  | delimiter '{self._delimiter()}'")
-        self.hierarchy.set_rules_normalization(self._delimiter(), self._pad_level1())
-        self._refresh_hierarchy_providers()
-
-    # ---------------- Providers ----------------
-    def _refresh_hierarchy_providers(self) -> None:
-        if self._rules_on():
-            self.hierarchy.set_providers(self._suggest_codes_rules, self._suggest_names_rules, self._lookup_rules)
-        else:
-            self.hierarchy.set_providers(self._suggest_codes_free, self._suggest_names_free, None)
-
-    def _cache_key_code(self, level: int) -> str:
-        return f"lvl{level}.code"
-
-    def _cache_key_name(self, level: int) -> str:
-        return f"lvl{level}.name"
-
-    def _suggest_codes_free(self, level: int, prefix: str) -> List[str]:
-        try:
-            return suggest(self.cache, self._cache_key_code(level), prefix=prefix)  # type: ignore
-        except TypeError:
-            return suggest(self.cache, self._cache_key_code(level), prefix)  # type: ignore
-        except Exception:
-            return []
-
-    def _suggest_names_free(self, level: int, prefix: str) -> List[str]:
-        try:
-            return suggest(self.cache, self._cache_key_name(level), prefix=prefix)  # type: ignore
-        except TypeError:
-            return suggest(self.cache, self._cache_key_name(level), prefix)  # type: ignore
-        except Exception:
-            return []
-
-    def _rules_scan_codes(self, level: int) -> List[str]:
-        codes: List[str] = []
-        if not self.rules or not self.profile:
-            return codes
-        try:
-            for (pid, lv, _), mr in (getattr(self.rules, "mappings", {}) or {}).items():
-                if pid != self.profile.profile_id or lv != level:
-                    continue
-                code = getattr(mr, "code", "") or ""
-                if code:
-                    codes.append(str(code).strip())
-        except Exception:
-            pass
-        return sorted(set([c for c in codes if c]))
-
-    def _rules_scan_names(self, level: int) -> List[str]:
-        names: List[str] = []
-        if not self.rules or not self.profile:
-            return names
-        try:
-            for (pid, lv, _), mr in (getattr(self.rules, "mappings", {}) or {}).items():
-                if pid != self.profile.profile_id or lv != level:
-                    continue
-                nm = getattr(mr, "name", "") or ""
-                if nm:
-                    names.append(str(nm).strip())
-        except Exception:
-            pass
-        return sorted(set([n for n in names if n]))
-
-    def _suggest_codes_rules(self, level: int, prefix: str, parent_code: str = "") -> List[str]:
-        if not self._rules_on() or not self.rules or not self.profile:
-            return self._suggest_codes_free(level, prefix)
-
-        delim = self._delimiter()
-        pfx = (prefix or "").strip()
-        parent_code = (parent_code or "").strip()
-
-        hist = self._suggest_codes_free(level, pfx)
-
-        if level <= 1 or not parent_code:
-            wb_codes = self._rules_scan_codes(level)
-            merged = sorted(set([c for c in wb_codes if c.lower().startswith(pfx.lower())] + hist))
-            return merged[:200]
-
-        suffixes: List[str] = []
-        for (pid, lv, _), mr in (getattr(self.rules, "mappings", {}) or {}).items():
-            if pid != self.profile.profile_id or lv != level:
-                continue
-            code = str(getattr(mr, "code", "") or "")
-            if not code.startswith(parent_code + delim):
-                continue
-            suf = code[len(parent_code + delim):]
-            if suf:
-                suffixes.append(suf)
-
-        wb_suffixes = sorted(set(suffixes))
-        if pfx:
-            wb_suffixes = [s for s in wb_suffixes if s.lower().startswith(pfx.lower())]
-
-        hist_suffix: List[str] = []
-        for h in hist:
-            hs = (h or "").strip()
-            if hs.startswith(parent_code + delim):
-                hs = hs[len(parent_code + delim):]
-            hist_suffix.append(hs)
-
-        merged = sorted(set(wb_suffixes + hist_suffix))
-        return merged[:200]
-
-    def _suggest_names_rules(self, level: int, prefix: str) -> List[str]:
-        wb = self._rules_scan_names(level)
-        hist = self._suggest_names_free(level, prefix)
-        merged = sorted(set([n for n in wb if n.lower().startswith((prefix or "").lower())] + hist))
-        return merged[:200]
-
-    def _lookup_rules(self, level: int, code: str, parent_code: str = "") -> Optional[LookupResult]:
-        if not self._rules_on():
-            return None
-        assert self.rules is not None
-        assert self.profile is not None
-
-        code_norm = (code or "").strip()
-        if level == 1:
-            if code_norm.isdigit():
-                code_norm = str(int(code_norm)).zfill(self._pad_level1())
-        else:
-            code_norm = expand_child_code((parent_code or "").strip(), code_norm, self._delimiter())
-
-        mr = lookup_mapping(self.rules, self.profile.profile_id, level, code_norm.strip())
-        if mr and getattr(mr, "name", None):
-            return LookupResult(name=str(mr.name), locked=bool(getattr(mr, "locked", False)))
-        return None
-
-    # ---------------- Cache ----------------
-    def _on_hierarchy_changed(self, level: int, code: str, name: str) -> None:
-        if code:
-            remember(self.cache, self._cache_key_code(level), code, limit=500)
-        if name:
-            remember(self.cache, self._cache_key_name(level), name, limit=500)
-
-    def _remember_free_typing_meta(self) -> None:
-        remember(self.cache, "title", self.ed_title.text(), limit=200)
-        remember(self.cache, "cabinet_section", self.ed_cab.text(), limit=200)
-
-    # ---------------- Actions ----------------
+    # ---------------- Cache save ----------------
     def _save_cache_clicked(self) -> None:
         try:
             save_cache(self.cache)
@@ -452,14 +490,20 @@ class LabelEditorView(QWidget):
             QMessageBox.critical(self, "Save Failed", str(e))
             self.status.setText("Save cache failed.")
 
+    # ---------------- Export ----------------
     def _export_pdf_clicked(self) -> None:
+        doc = LabelDocument()
+        doc.title = (self.ed_title.text() or "").strip()
+        doc.cabinet_section = (self.ed_cab.text() or "").strip()
+        doc.hierarchy = self.hierarchy.export_entries()
+
         dlg = PdfTemplateDialog(self)
         dlg.set_sample_content(
-            (self.ed_title.text() or "").strip() or "NHMC Label",
-            (self.ed_cab.text() or "").strip() or "Cabinet Section: Example Cabinet A",
+            doc.title or "NHMC Label",
+            doc.cabinet_section or "Cabinet Section: Example Cabinet A",
         )
+        dlg.set_preview_document(doc)
 
-        # restore last selections
         try:
             if self._last_template_id in dlg.radios:
                 dlg.radios[self._last_template_id].setChecked(True)
@@ -485,12 +529,6 @@ class LabelEditorView(QWidget):
             return
 
         pagesize = self._current_pagesize_pts()
-
-        doc = LabelDocument()
-        doc.title = (self.ed_title.text() or "").strip()
-        doc.cabinet_section = (self.ed_cab.text() or "").strip()
-        doc.hierarchy = self.hierarchy.export_entries()
-
         opts = PdfExportOptions(pagesize=pagesize, template_id=template_id, section_title=section_title)
 
         try:
@@ -501,4 +539,8 @@ class LabelEditorView(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", str(e))
             self.status.setText("Export failed.")
+
+
+
+
 

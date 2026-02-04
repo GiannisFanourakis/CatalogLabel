@@ -1,10 +1,10 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QPainter, QPixmap, QPen, QFont
+from PySide6.QtCore import Qt, QSize, QRect
+from PySide6.QtGui import QPainter, QPixmap, QPen, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -18,6 +18,14 @@ from PySide6.QtWidgets import (
     QComboBox,
     QLineEdit,
     QSizePolicy,
+)
+
+from src.domain.models import LabelDocument
+from src.services.export.pdf.template_specs import (
+    merged_template_defaults,
+    norm_template_id,
+    INDENT_STEP_PT,
+    BULLET_GAP_PT,
 )
 
 
@@ -41,8 +49,9 @@ TEMPLATES = [
 
 class PdfTemplateDialog(QDialog):
     """
-    Template chooser with fast mock preview (QPainter).
-    Includes Section Title selector used by the real PDF exporter.
+    Preview is QPainter-based but now uses robust QRect text drawing so we don't
+    get baseline clipping artifacts (like the dreaded single-letter 'C').
+    Layout constants are still shared with exporter via template_specs.
     """
 
     SECTION_PRESETS = [
@@ -63,18 +72,7 @@ class PdfTemplateDialog(QDialog):
         self._selected_template_id = "classic"
         self._title = "NHMC Label"
         self._cabinet = "Cabinet Section: Example Cabinet A"
-
-        # section title ("" means none)
-        self._section_title: str = ""
-
-        # sample hierarchy used in preview
-        self._rows = [
-            ("01", "Mammals"),
-            ("01.1", "Mammals – Carnivora"),
-            ("01.2", "Mammals – Herbivora"),
-            ("02", "Birds"),
-            ("02.1", "Birds – Passerines"),
-        ]
+        self._preview_doc: Optional[LabelDocument] = None
 
         self._build_ui()
         self._wire()
@@ -82,27 +80,34 @@ class PdfTemplateDialog(QDialog):
 
     # ---------- public API ----------
     def set_sample_content(self, title: str, cabinet: str) -> None:
-        self._title = title or self._title
-        self._cabinet = cabinet or self._cabinet
+        if (title or "").strip():
+            self._title = title.strip()
+        if (cabinet or "").strip():
+            self._cabinet = cabinet.strip()
+        self._update_preview()
+
+    def set_preview_document(self, doc: LabelDocument) -> None:
+        self._preview_doc = doc
+        t = (getattr(doc, "title", "") or "").strip()
+        c = (getattr(doc, "cabinet_section", "") or "").strip()
+        if t:
+            self._title = t
+        if c:
+            self._cabinet = c
         self._update_preview()
 
     def selected_template_id(self) -> str:
         return self._selected_template_id
 
     def selected_section_title(self) -> str:
-        # "" = none
         if self.cbo_section.currentData() == "__custom__":
             return (self.ed_custom.text() or "").strip()
         val = self.cbo_section.currentData()
         return (val or "").strip()
 
     def set_selected_section_title(self, title: str) -> None:
-        """
-        Restore a previous selection.
-        If it doesn't match a preset, we set Custom and fill it.
-        """
         t = (title or "").strip()
-        # exact preset?
+
         for i in range(self.cbo_section.count()):
             if (self.cbo_section.itemData(i) or "") == t:
                 self.cbo_section.setCurrentIndex(i)
@@ -111,7 +116,6 @@ class PdfTemplateDialog(QDialog):
                 return
 
         if t == "":
-            # none
             for i in range(self.cbo_section.count()):
                 if (self.cbo_section.itemData(i) or "") == "":
                     self.cbo_section.setCurrentIndex(i)
@@ -119,7 +123,6 @@ class PdfTemplateDialog(QDialog):
                     self._on_section_changed()
                     return
 
-        # custom
         for i in range(self.cbo_section.count()):
             if (self.cbo_section.itemData(i) or "") == "__custom__":
                 self.cbo_section.setCurrentIndex(i)
@@ -135,12 +138,11 @@ class PdfTemplateDialog(QDialog):
 
         help_txt = QLabel(
             "Pick a presentation style for the exported label PDF.\n"
-            "Use 'Section Title' if you want an extra heading above the hierarchy (most labels don't need it)."
+            "Preview uses the same layout rules as export (wrapping, indentation, gutters)."
         )
         help_txt.setWordWrap(True)
         root.addWidget(help_txt)
 
-        # Section title controls
         sec_row = QHBoxLayout()
         sec_row.setSpacing(8)
 
@@ -167,7 +169,6 @@ class PdfTemplateDialog(QDialog):
         mid.setSpacing(12)
         root.addLayout(mid, 1)
 
-        # left template list
         box = QGroupBox("Templates")
         left = QVBoxLayout(box)
         left.setContentsMargins(10, 10, 10, 10)
@@ -184,10 +185,8 @@ class PdfTemplateDialog(QDialog):
 
         self.radios["classic"].setChecked(True)
         left.addStretch(1)
-
         mid.addWidget(box, 0)
 
-        # preview
         prev_box = QGroupBox("Preview")
         prev_lay = QVBoxLayout(prev_box)
         prev_lay.setContentsMargins(10, 10, 10, 10)
@@ -200,7 +199,6 @@ class PdfTemplateDialog(QDialog):
 
         mid.addWidget(prev_box, 1)
 
-        # buttons
         btns = QHBoxLayout()
         btns.addStretch(1)
 
@@ -233,6 +231,103 @@ class PdfTemplateDialog(QDialog):
             self.ed_custom.setText("")
         self._update_preview()
 
+    # -------- preview helpers --------
+    def _qt_family_from_export_font(self, export_font: str) -> str:
+        f = (export_font or "").lower()
+        if "times" in f:
+            return "Times New Roman"
+        return "Segoe UI"
+
+    def _walk_tree(self, nodes: List[Dict[str, Any]], level: int = 1) -> List[Tuple[int, str, str]]:
+        out: List[Tuple[int, str, str]] = []
+        for n in nodes or []:
+            out.append((level, (n.get("code") or "").strip(), (n.get("name") or "").strip()))
+            kids = n.get("children") or []
+            out.extend(self._walk_tree(kids, level + 1))
+        return out
+
+    def _doc_rows(self) -> List[Tuple[int, str, str]]:
+        if self._preview_doc and isinstance(getattr(self._preview_doc, "hierarchy", None), list):
+            rows = self._walk_tree(self._preview_doc.hierarchy, 1)  # type: ignore[arg-type]
+            if rows and rows[0][1] == "" and rows[0][2] == "":
+                return rows[1:]
+            return rows
+        return [
+            (1, "01", "Mammals"),
+            (2, "01.1", "Mammals – Carnivora"),
+            (3, "01.1.1", "Katsoulia"),
+            (1, "02", "Birds"),
+            (2, "02.1", "Birds – Passerines"),
+            (3, "02.1.1", "Ornithes"),
+            (1, "03", "Reptiles"),
+            (2, "03.1", "Reptiles – Lizards"),
+            (3, "03.1.1", "Liakonia"),
+        ]
+
+    def _wrap_lines(self, fm: QFontMetrics, text: str, max_w: int) -> List[str]:
+        t = (text or "").strip()
+        if not t:
+            return [""]
+
+        words = t.split()
+        lines: List[str] = []
+        cur: List[str] = []
+
+        def width(s: str) -> int:
+            return fm.horizontalAdvance(s)
+
+        for w in words:
+            if not cur:
+                cur = [w]
+                continue
+            trial = " ".join(cur + [w])
+            if width(trial) <= max_w:
+                cur.append(w)
+            else:
+                lines.append(" ".join(cur))
+                cur = [w]
+
+        if cur:
+            lines.append(" ".join(cur))
+
+        fixed: List[str] = []
+        for line in lines:
+            if width(line) <= max_w:
+                fixed.append(line)
+                continue
+            buf = ""
+            for ch in line:
+                trial = buf + ch
+                if width(trial) <= max_w:
+                    buf = trial
+                else:
+                    if buf:
+                        fixed.append(buf)
+                    buf = ch
+            if buf:
+                fixed.append(buf)
+
+        return fixed if fixed else [""]
+
+    def _ellipsis_fit(self, fm: QFontMetrics, text: str, max_w: int) -> str:
+        s = (text or "").strip()
+        if fm.horizontalAdvance(s) <= max_w:
+            return s
+        ell = "…"
+        if fm.horizontalAdvance(ell) > max_w:
+            return ""
+        lo, hi = 0, len(s)
+        best = ell
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            cand = s[:mid].rstrip() + ell
+            if fm.horizontalAdvance(cand) <= max_w:
+                best = cand
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return best
+
     # ---------------- Preview rendering ----------------
     def _update_preview(self) -> None:
         pm = QPixmap(600, 740)
@@ -248,177 +343,132 @@ class PdfTemplateDialog(QDialog):
         p.setBrush(Qt.white)
         p.drawRoundedRect(paper_x, paper_y, paper_w, paper_h, 10, 10)
 
-        tid = (self._selected_template_id or "classic").strip().lower()
+        tid = norm_template_id(self._selected_template_id)
+        spec = merged_template_defaults(tid)
         section_title = self.selected_section_title()
+        rows = self._doc_rows()
 
-        # fonts
-        fam = "Segoe UI" if tid in ("modern", "compact", "two_column") else "Times New Roman"
-        title_font = QFont(fam, 15, QFont.Bold, False)
-        meta_font_ital = QFont(fam, 9, QFont.Normal, True)
-        meta_font = QFont(fam, 9, QFont.Normal, False)
-        body = QFont(fam, 9, QFont.Normal, False)
-        body_b = QFont(fam, 9, QFont.Bold, False)
+        fam = self._qt_family_from_export_font(spec.get("font_regular", "Helvetica"))
+
+        title_font = QFont(fam, int(round(float(spec.get("header_title_size", 14.0)))), QFont.Bold)
+        sub_font = QFont(fam, int(round(float(spec.get("header_sub_size", 10.0)))))
+        section_font = QFont(fam, int(round(float(spec.get("header_section_size", 11.0)))), QFont.Bold)
+
+        base_size = float(spec.get("max_font", 11.0))
+        leading_mult = float(spec.get("leading_mult", 1.25))
+        body_font = QFont(fam, int(round(base_size)))
+        body_b = QFont(fam, int(round(base_size)), QFont.Bold)
 
         left = paper_x + 22
         right = paper_x + paper_w - 22
-        y = paper_y + 22
+        y = paper_y + 20
 
-        p.setPen(Qt.black)
+        def draw_text_rect(font: QFont, x: int, y_top: int, w: int, h: int, text: str, flags: Qt.AlignmentFlag) -> None:
+            p.setFont(font)
+            p.setPen(Qt.black)
+            p.drawText(QRect(x, y_top, w, h), int(flags), text)
 
+        # institutional small header line
         if tid == "institutional":
-            p.setFont(QFont(fam, 8, QFont.Normal, False))
-            p.drawText(left, y - 8, right - left, 14, Qt.AlignLeft | Qt.AlignVCenter, "NHMC — Natural History Museum of Crete")
+            draw_text_rect(QFont(fam, 8), left, y - 4, right - left, 14, "NHMC — Natural History Museum of Crete", Qt.AlignLeft | Qt.AlignTop)
+            y += 10
 
-        p.setFont(title_font)
-        p.drawText(paper_x, y, paper_w, 26, Qt.AlignHCenter | Qt.AlignVCenter, (self._title or "")[:42])
-        y += 28
+        # main title centered
+        draw_text_rect(title_font, paper_x, y, paper_w, 28, (self._title or "").strip()[:72], Qt.AlignHCenter | Qt.AlignTop)
+        y += 26
 
-        p.setFont(meta_font_ital if tid in ("classic", "boxed", "institutional") else meta_font)
-        p.drawText(paper_x, y, paper_w, 18, Qt.AlignHCenter | Qt.AlignVCenter, (self._cabinet or "")[:54])
+        # cabinet centered
+        draw_text_rect(sub_font, paper_x, y, paper_w, 20, (self._cabinet or "").strip()[:90], Qt.AlignHCenter | Qt.AlignTop)
         y += 18
 
-        if tid != "boxed":
-            p.setPen(QPen(Qt.black, 1))
-            p.drawLine(left, y + 10, right, y + 10)
-            y += 26
-
-        # Helpers
-        def draw_section_title(y0: int, default_label: str) -> int:
-            nonlocal section_title
-            if (section_title or "").strip():
-                label = section_title.strip()
-            else:
-                label = default_label
-
-            # If user chose none, do nothing.
-            if label.strip() == "":
-                return y0
-
-            p.setFont(QFont(body.family(), 10, QFont.Bold, False))
-            p.drawText(left, y0, right - left, 18, Qt.AlignLeft | Qt.AlignVCenter, label)
-            return y0 + 20
-
-        def draw_table(y0: int, code_scale: float = 1.0, dense: bool = False, boxed: bool = False) -> int:
-            y = y0
-            if boxed:
-                # cabinet block
-                p.setPen(QPen(Qt.black, 1))
-                p.setBrush(Qt.NoBrush)
-                p.drawRoundedRect(left - 6, y - 10, (right - left) + 12, 70, 6, 6)
-                p.setFont(body_b)
-                p.drawText(left, y, right - left, 16, Qt.AlignLeft | Qt.AlignVCenter, "Cabinet Section")
-                p.setFont(body)
-                p.drawText(left, y + 16, right - left, 16, Qt.AlignLeft | Qt.AlignVCenter, (self._cabinet or "")[:60])
-                y += 80
-
-                y = draw_section_title(y, "")  # boxed doesn't need default
-                # table box
-                p.drawRoundedRect(left - 6, y - 10, (right - left) + 12, 240, 6, 6)
-                y += 8
-            else:
-                # table-family: section title optional, default none
-                y = draw_section_title(y, "")
-
-            # column headers
-            p.setFont(body_b)
-            p.drawText(left, y, 140, 16, Qt.AlignLeft | Qt.AlignVCenter, "Code")
-            p.drawText(left + 160, y, right - (left + 160), 16, Qt.AlignLeft | Qt.AlignVCenter, "Name")
-            y += 14
-            p.setPen(QPen(Qt.black, 1))
-            p.drawLine(left, y + 4, right, y + 4)
-            y += 12
-            p.setPen(Qt.black)
-
-            row_h = 18 if not dense else 14
-            for code, name in self._rows[:5]:
-                cfont = QFont(body.family(), int(9 * code_scale), QFont.Bold if code_scale > 1.0 else QFont.Normal, False)
-                p.setFont(cfont)
-                p.drawText(left, y, 150, row_h, Qt.AlignLeft | Qt.AlignVCenter, code)
-
-                p.setFont(body)
-                p.drawText(left + 160, y, right - (left + 160), row_h, Qt.AlignLeft | Qt.AlignVCenter, name)
-                y += row_h
-                p.setPen(QPen(Qt.black, 1))
-                p.drawLine(left, y + 2, right, y + 2)
-                p.setPen(Qt.black)
-                y += (6 if not dense else 4)
-
-            return y
-
-        def draw_outline(y0: int) -> int:
-            y = y0
-            # outline: default title is "Classification (Outline)" unless user set none/custom
-            y = draw_section_title(y, "Classification (Outline)")
-            y += 4
-
-            p.setFont(body)
-            for code, name in self._rows[:5]:
-                indent = 0
-                if "." in code:
-                    indent = 14
-                if code.count(".") >= 2:
-                    indent = 28
-                line = f"• {code}  —  {name}"
-                p.drawText(left + indent, y, right - left - indent, 16, Qt.AlignLeft | Qt.AlignVCenter, line)
-                y += 18
-            return y
-
-        def draw_two_column(y0: int) -> int:
-            y = y0
-            y = draw_section_title(y, "")  # default none
-            y += 2
-
-            col_mid = left + (right - left) / 2.0
-            p.setFont(body_b)
-            p.drawText(left, y, 140, 16, Qt.AlignLeft | Qt.AlignVCenter, "Code")
-            p.drawText(left + 110, y, col_mid - (left + 110), 16, Qt.AlignLeft | Qt.AlignVCenter, "Name")
-            p.drawText(col_mid + 10, y, 140, 16, Qt.AlignLeft | Qt.AlignVCenter, "Code")
-            p.drawText(col_mid + 120, y, right - (col_mid + 120), 16, Qt.AlignLeft | Qt.AlignVCenter, "Name")
+        # section title
+        if section_title:
+            draw_text_rect(section_font, left, y, right - left, 18, section_title, Qt.AlignLeft | Qt.AlignTop)
             y += 18
-            p.setPen(QPen(Qt.black, 1))
-            p.drawLine(left, y, right, y)
-            y += 12
-            p.setPen(Qt.black)
 
-            p.setFont(body)
-            row_h = 16
-            items = self._rows[:6]
-            left_items = items[:3]
-            right_items = items[3:6]
+        # header rule
+        p.setPen(QPen(Qt.black, max(1, int(round(float(spec.get("header_rule_width", 1.0)))))))
+        p.drawLine(left, y + 6, right, y + 6)
+        y += int(round(float(spec.get("header_gap_pt", 12.0))))
 
-            yy = y
-            for i in range(3):
-                if i < len(left_items):
-                    c, n = left_items[i]
-                    p.drawText(left, yy, 110, row_h, Qt.AlignLeft | Qt.AlignVCenter, c)
-                    p.drawText(left + 110, yy, col_mid - (left + 110), row_h, Qt.AlignLeft | Qt.AlignVCenter, n)
-                if i < len(right_items):
-                    c, n = right_items[i]
-                    p.drawText(col_mid + 10, yy, 110, row_h, Qt.AlignLeft | Qt.AlignVCenter, c)
-                    p.drawText(col_mid + 120, yy, right - (col_mid + 120), row_h, Qt.AlignLeft | Qt.AlignVCenter, n)
-                yy += row_h + 6
+        # two-column heuristic for preview only
+        allow_two_cols = (tid == "two_column") or (len(rows) >= 18 and tid in ("outline", "modern", "compact"))
+        col_gap = 14
+        col_w = ((right - left) - col_gap) // 2 if allow_two_cols else (right - left)
 
-            return yy
+        x_left = left
+        y_start = y
+        col_idx = 0
 
-        # render by template
-        if tid == "boxed":
-            draw_table(y + 6, boxed=True)
-        elif tid == "compact":
-            draw_table(y, dense=True)
-        elif tid == "code_first":
-            draw_table(y, code_scale=1.2)
-        elif tid == "outline":
-            draw_outline(y)
-        elif tid == "two_column":
-            draw_two_column(y)
+        # column widths by template
+        if tid == "code_first":
+            code_col_w = int(col_w * 0.40)
         else:
-            draw_table(y)
+            code_col_w = int(col_w * 0.30)
+        if tid in ("outline", "two_column"):
+            code_col_w = int(col_w * 0.26)
 
-        if tid == "institutional":
-            p.setFont(QFont(fam, 8, QFont.Normal, False))
-            p.drawText(left, paper_y + paper_h - 16, right - left, 14, Qt.AlignLeft | Qt.AlignVCenter, "Generated by NHMC-Labelling")
-            p.drawText(left, paper_y + paper_h - 16, right - left, 14, Qt.AlignRight | Qt.AlignVCenter, "Page 1")
+        code_name_gap = int(round(float(spec.get("code_name_gap_pt", 10.0))))
+        name_col_w = max(80, col_w - code_col_w - code_name_gap)
+
+        row_rules = bool(spec.get("row_rules", False))
+        row_rule_every = max(1, int(spec.get("row_rule_every", 1)))
+
+        fm = QFontMetrics(body_font)
+        lead_px = max(12, int(round(fm.height() * (leading_mult / 1.25))))  # stable-ish
+        pad_px = max(2, int(round(float(spec.get("row_pad_pt", 4.0)))))
+
+        def next_col_or_stop() -> None:
+            nonlocal col_idx, x_left, y
+            if allow_two_cols and col_idx == 0:
+                col_idx = 1
+                x_left = left + col_w + col_gap
+                y = y_start
+                return
+            y = paper_y + paper_h - 20  # stop drawing
+
+        # draw rows (top-aligned rectangles, no baseline bugs)
+        for idx, (lvl, code, name) in enumerate(rows, start=1):
+            lvl_i = int(lvl or 1)
+            indent = int(round((max(lvl_i - 1, 0) * INDENT_STEP_PT))) if tid in ("outline", "two_column") else 0
+
+            # wrap name
+            avail_name_w = max(60, name_col_w - indent)
+            lines = self._wrap_lines(fm, name, avail_name_w)
+            max_lines = int(spec.get("max_name_lines", 3) or 3)
+            if len(lines) > max_lines:
+                lines = lines[:max_lines]
+                lines[-1] = self._ellipsis_fit(fm, lines[-1], avail_name_w)
+
+            row_h = (len(lines) * lead_px) + pad_px
+
+            if y + row_h > (paper_y + paper_h - 24):
+                next_col_or_stop()
+
+            x = x_left + indent
+
+            # bullet
+            if tid in ("outline", "two_column"):
+                draw_text_rect(body_font, x, y, 14, lead_px, "•", Qt.AlignLeft | Qt.AlignTop)
+                x += int(round(BULLET_GAP_PT))
+
+            # code
+            draw_text_rect(body_b, x, y, code_col_w, lead_px, str(code), Qt.AlignLeft | Qt.AlignTop)
+
+            # name lines
+            name_x = x + code_col_w + code_name_gap
+            yy = y
+            for line in lines:
+                draw_text_rect(body_font, name_x, yy, avail_name_w, lead_px, line, Qt.AlignLeft | Qt.AlignTop)
+                yy += lead_px
+
+            y += row_h
+
+            # row rules BELOW the row (never through text)
+            if row_rules and (idx % row_rule_every == 0):
+                p.setPen(QPen(Qt.black, 1))
+                p.drawLine(x_left, y - 2, x_left + col_w, y - 2)
+                p.setPen(Qt.black)
 
         p.end()
         self.preview.setPixmap(pm)
-

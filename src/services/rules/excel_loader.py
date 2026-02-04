@@ -1,54 +1,84 @@
 ﻿from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 from openpyxl import load_workbook
 
+from src.services.rules.exceptions import RulesWorkbookError
 from src.services.rules.rules_types import (
-    RulesWorkbook, RulesProfile, MappingRow, DefaultChildRow
+    RulesWorkbook,
+    RulesProfile,
+    MappingRow,
+    DefaultChildRow,
 )
 
 
-def _norm(s: Any) -> str:
-    if s is None:
-        return ""
-    return " ".join(str(s).strip().split())
+def _norm(v) -> str:
+    return (str(v).strip() if v is not None else "").strip()
 
 
-def _to_int(x: Any, default: int = 0) -> int:
+def _to_int(v, default: int = 0) -> int:
     try:
-        return int(str(x).strip())
+        return int(str(v).strip())
     except Exception:
         return default
 
 
-def _read_table(ws) -> Tuple[List[str], List[List[Any]]]:
+def _read_table(ws) -> Tuple[List[str], List[List[str]]]:
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
         return [], []
-    headers = [(_norm(c)).lower() for c in (rows[0] or [])]
-    data = [list(r) for r in rows[1:] if any((_norm(v) for v in (r or [])))]
-    return headers, data
+
+    def norm_row(r):
+        return [(_norm(x)) for x in (r or [])]
+
+    hdr = norm_row(rows[0])
+    data = [norm_row(r) for r in rows[1:]]
+
+    def rtrim(a: List[str]) -> List[str]:
+        b = list(a)
+        while b and (b[-1] or "").strip() == "":
+            b.pop()
+        return b
+
+    hdr = rtrim(hdr)
+    data = [rtrim(r) for r in data if any((c or "").strip() for c in r)]
+    return hdr, data
 
 
 def _idx_map(headers: List[str]) -> Dict[str, int]:
-    return {h: i for i, h in enumerate(headers) if h}
+    out: Dict[str, int] = {}
+    for i, h in enumerate(headers or []):
+        key = (h or "").strip().lower()
+        if key and key not in out:
+            out[key] = i
+    return out
 
 
-def _get(row: List[Any], idx: Dict[str, int], name: str) -> Any:
-    j = idx.get(name.lower())
-    if j is None or j >= len(row):
-        return None
+def _get(row: List[str], idx: Dict[str, int], name: str, default: str = "") -> str:
+    j = idx.get((name or "").strip().lower(), None)
+    if j is None:
+        return default
+    if j >= len(row):
+        return default
     return row[j]
 
 
 def _parse_profiles_format(wb) -> RulesWorkbook:
+    """
+    Legacy 'rules.xlsx' format:
+      - Profiles
+      - (optional) LevelMappings
+      - (optional) DefaultChildren
+    """
     out = RulesWorkbook()
 
-    # ---- Profiles ----
     if "Profiles" not in wb.sheetnames:
-        raise ValueError("rules.xlsx is missing required sheet: Profiles")
+        raise RulesWorkbookError(
+            message="Invalid rules workbook format (missing required sheet).",
+            expected_sheets=["Profiles"],
+            found_sheets=list(wb.sheetnames),
+        )
 
     ws = wb["Profiles"]
     headers, data = _read_table(ws)
@@ -63,10 +93,8 @@ def _parse_profiles_format(wb) -> RulesWorkbook:
         level_count = _to_int(_get(r, idx, "level_count"), 2)
 
         level_labels: Dict[int, str] = {}
-        for lv in range(1, 7):
-            lab = _norm(_get(r, idx, f"level{lv}_label"))
-            if lv <= level_count:
-                level_labels[lv] = lab or f"Level {lv}"
+        for lv in range(1, max(1, level_count) + 1):
+            level_labels[lv] = _norm(_get(r, idx, f"level_{lv}_label")) or f"Level {lv}"
 
         delim = _norm(_get(r, idx, "code_delimiter")) or "."
         if len(delim) != 1:
@@ -83,7 +111,6 @@ def _parse_profiles_format(wb) -> RulesWorkbook:
         )
         out.profiles[pid] = prof
 
-    # ---- LevelMappings ----
     if "LevelMappings" in wb.sheetnames:
         ws = wb["LevelMappings"]
         headers, data = _read_table(ws)
@@ -96,7 +123,7 @@ def _parse_profiles_format(wb) -> RulesWorkbook:
             level = _to_int(_get(r, idx, "level"), 0)
             code = _norm(_get(r, idx, "code"))
             name = _norm(_get(r, idx, "name"))
-            locked = str(_norm(_get(r, idx, "locked") or "TRUE")).strip().lower() not in ("0", "false", "no")
+            locked = (_norm(_get(r, idx, "locked")).lower() in ("1", "true", "yes", "y"))
 
             if level <= 0 or not code:
                 continue
@@ -104,7 +131,6 @@ def _parse_profiles_format(wb) -> RulesWorkbook:
             mr = MappingRow(profile_id=pid, level=level, code=code, name=name, locked=locked)
             out.mappings[(pid, level, code.strip().lower())] = mr
 
-    # ---- DefaultChildren ----
     if "DefaultChildren" in wb.sheetnames:
         ws = wb["DefaultChildren"]
         headers, data = _read_table(ws)
@@ -115,11 +141,12 @@ def _parse_profiles_format(wb) -> RulesWorkbook:
             if not pid:
                 continue
             parent_level = _to_int(_get(r, idx, "parent_level"), 0)
-            child_level = _to_int(_get(r, idx, "child_level"), 0)
             parent_code = _norm(_get(r, idx, "parent_code"))
+            child_level = _to_int(_get(r, idx, "child_level"), 0)
             child_code = _norm(_get(r, idx, "child_code"))
             child_name = _norm(_get(r, idx, "child_name"))
-            if not (parent_level and child_level and parent_code and child_code):
+
+            if parent_level <= 0 or child_level <= 0 or not parent_code or not child_code:
                 continue
 
             dc = DefaultChildRow(
@@ -130,51 +157,42 @@ def _parse_profiles_format(wb) -> RulesWorkbook:
                 child_code=child_code,
                 child_name=child_name,
             )
-            key = (pid, parent_level, parent_code.strip().lower(), child_level)
-            out.default_children.setdefault(key, []).append(dc)
-
-    # ---- Settings ----
-    if "Settings" in wb.sheetnames:
-        ws = wb["Settings"]
-        headers, data = _read_table(ws)
-        idx = _idx_map(headers)
-        for r in data:
-            k = _norm(_get(r, idx, "key"))
-            v = _norm(_get(r, idx, "value"))
-            if k:
-                out.settings[k] = v
+            out.default_children.append(dc)
 
     return out
 
 
 def _parse_simple_authority_format(wb) -> RulesWorkbook:
     """
-    Supports the 'human' workbook:
+    'Human' workbook:
       - Profile sheet: Field | Value
       - Level 1 sheet: Code | Name
       - Level 2 sheet: Parent code | Code (suffix) | Name
-      - Optional Level 3/4: same parent+suffix structure
+      - Optional Level 3..N
     """
     out = RulesWorkbook()
 
-    if "Profile" not in wb.sheetnames or "Level 1" not in wb.sheetnames:
-        raise ValueError("Simple authority workbook must contain sheets: Profile and Level 1")
+    if ("Profile" not in wb.sheetnames) or ("Level 1" not in wb.sheetnames):
+        raise RulesWorkbookError(
+            message="Invalid simple authority workbook format.",
+            expected_sheets=["Profile", "Level 1"],
+            found_sheets=list(wb.sheetnames),
+        )
 
-    # ---- Profile ----
     ws = wb["Profile"]
     headers, data = _read_table(ws)
 
-    # Expect simple key/value in first two columns, tolerate header row
     kv: Dict[str, str] = {}
-    for r in data:
-        k = _norm(r[0] if len(r) > 0 else "")
-        v = _norm(r[1] if len(r) > 1 else "")
+    for r in ([headers] + data):
+        if len(r) < 2:
+            continue
+        k = _norm(r[0]).lower()
+        v = _norm(r[1])
         if k:
-            kv[k.lower()] = v
+            kv[k] = v
 
-    institution = kv.get("institution", "")
-    discipline = kv.get("discipline", "")
-    delim = kv.get("code delimiter", ".") or "."
+    discipline = (kv.get("discipline", "") or "").strip()
+    delim = (kv.get("code delimiter", ".") or ".").strip() or "."
     if len(delim) != 1:
         delim = "."
 
@@ -187,9 +205,8 @@ def _parse_simple_authority_format(wb) -> RulesWorkbook:
     level_labels: Dict[int, str] = {}
     for lv in range(1, level_count + 1):
         nm = kv.get(f"level {lv} name", "") or kv.get(f"level {lv} label", "")
-        level_labels[lv] = nm or f"Level {lv}"
+        level_labels[lv] = (nm or f"Level {lv}").strip()
 
-    # One default profile
     pid = "default"
     pname = (discipline or "Authority Profile").strip() or "Authority Profile"
     out.profiles[pid] = RulesProfile(
@@ -202,39 +219,32 @@ def _parse_simple_authority_format(wb) -> RulesWorkbook:
         notes="",
     )
 
-    # Store institution/discipline as settings so UI can show them
-    if institution:
-        out.settings["institution"] = institution
-    if discipline:
-        out.settings["discipline"] = discipline
-    out.settings["pad_level1"] = str(pad_l1)
-
-    # Helper: normalize L1 codes (padding)
-    def norm_l1(code: str) -> str:
-        c = (code or "").strip()
+    def norm_l1(c: str) -> str:
+        c = (c or "").strip()
         if c.isdigit():
             return str(int(c)).zfill(pad_l1)
         return c
 
-    # ---- Level 1 mappings ----
     ws = wb["Level 1"]
     headers, data = _read_table(ws)
     idx = _idx_map(headers)
-
-    # Fallback if headers missing: assume first 2 columns
-    code_key = "code" if "code" in idx else headers[0] if headers else "code"
-    name_key = "name" if "name" in idx else headers[1] if len(headers) > 1 else "name"
+    use_headers = ("code" in idx and "name" in idx)
 
     for r in data:
-        code = _norm(_get(r, idx, code_key) if idx else (r[0] if len(r) > 0 else ""))
-        name = _norm(_get(r, idx, name_key) if idx else (r[1] if len(r) > 1 else ""))
+        if use_headers:
+            code = _norm(_get(r, idx, "code"))
+            name = _norm(_get(r, idx, "name"))
+        else:
+            code = _norm(r[0] if len(r) > 0 else "")
+            name = _norm(r[1] if len(r) > 1 else "")
+
         if not code:
             continue
         code = norm_l1(code)
+
         mr = MappingRow(profile_id=pid, level=1, code=code, name=name, locked=True)
         out.mappings[(pid, 1, code.lower())] = mr
 
-    # ---- Level 2..N mappings ----
     for lv in range(2, level_count + 1):
         sheet = f"Level {lv}"
         if sheet not in wb.sheetnames:
@@ -243,22 +253,22 @@ def _parse_simple_authority_format(wb) -> RulesWorkbook:
         ws = wb[sheet]
         headers, data = _read_table(ws)
         idx = _idx_map(headers)
+        use_headers = ("parent code" in idx and "code" in idx and "name" in idx)
 
-        # Expected columns
-        # parent code | code (suffix) | name
         for r in data:
-            parent = _norm(_get(r, idx, "parent code") if idx else (r[0] if len(r) > 0 else ""))
-            suffix = _norm(_get(r, idx, "code (suffix)") if idx and "code (suffix)" in idx else (_get(r, idx, "code") if idx else (r[1] if len(r) > 1 else "")))
-            name = _norm(_get(r, idx, "name") if idx else (r[2] if len(r) > 2 else ""))
+            if use_headers:
+                parent = _norm(_get(r, idx, "parent code"))
+                suffix = _norm(_get(r, idx, "code"))
+                name = _norm(_get(r, idx, "name"))
+            else:
+                parent = _norm(r[0] if len(r) > 0 else "")
+                suffix = _norm(r[1] if len(r) > 1 else "")
+                name = _norm(r[2] if len(r) > 2 else "")
 
             if not parent or not suffix:
                 continue
 
-            # Parent for level 2 is L1, so normalize padding
-            if lv == 2:
-                parent = norm_l1(parent)
-
-            # Build full code: parent + delimiter + suffix (unless suffix already contains delimiter)
+            parent = norm_l1(parent) if lv == 2 else parent.strip()
             full = suffix if (delim in suffix) else f"{parent}{delim}{str(int(suffix)) if suffix.isdigit() else suffix}"
 
             mr = MappingRow(profile_id=pid, level=lv, code=full, name=name, locked=True)
@@ -267,17 +277,13 @@ def _parse_simple_authority_format(wb) -> RulesWorkbook:
     return out
 
 
-def load_rules_xlsx(path: str | Path) -> RulesWorkbook:
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Rules file not found: {path}")
-
+def load_rules_workbook(path: str) -> RulesWorkbook:
     wb = load_workbook(path, data_only=True)
-
-    # If it looks like the old rules.xlsx format, parse that.
     if "Profiles" in wb.sheetnames:
         return _parse_profiles_format(wb)
-
-    # Otherwise try the simple authority workbook format.
     return _parse_simple_authority_format(wb)
 
+
+# Backwards-compatible API: UI imports this name.
+def load_rules_xlsx(path: str) -> RulesWorkbook:
+    return load_rules_workbook(path)

@@ -1,5 +1,5 @@
 ﻿#define MyAppName "CatalogLabel"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Ioannis Fanourakis"
 #define MyAppExeName "CatalogLabel.exe"
 #define MyAppURL "https://github.com/GiannisFanourakis"
@@ -74,6 +74,7 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
 
 
 
