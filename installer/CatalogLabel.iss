@@ -5,7 +5,8 @@
 #define MyAppURL "https://github.com/GiannisFanourakis"
 
 [Setup]
-AppId={{ioannisfanourakis.CatalogLabel}
+; IMPORTANT: Keep AppId constant forever (upgrade/uninstall stability).
+AppId={{ioannisfanourakis.CatalogLabel}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -15,9 +16,12 @@ AppUpdatesURL={#MyAppURL}
 
 AppComments=Tree-first label hierarchy builder with fast entry (Rules Mode + Free Typing) and print-ready PDF export.
 
-DefaultDirName={autopf}\{#MyAppName}
-DefaultGroupName={#MyAppName}
+; Per-user install (no admin prompts; avoids restricted paths)
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
+DefaultDirName={userpf}\{#MyAppName}
 DisableProgramGroupPage=yes
+UsePreviousAppDir=yes
 
 OutputDir=Output
 OutputBaseFilename=CatalogLabel_{#MyAppVersion}_Setup
@@ -29,9 +33,9 @@ WizardStyle=modern
 SetupIconFile=..\src\resources\icons\CatalogLabel.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
-; Branding images
-WizardImageFile=..\installer\branding\wizard_left.bmp
-WizardSmallImageFile=..\installer\branding\wizard_small.bmp
+; Branding images (relative to installer folder)
+WizardImageFile=branding\wizard_left.bmp
+WizardSmallImageFile=branding\wizard_small.bmp
 WizardImageStretch=no
 
 ; Windows metadata
@@ -42,11 +46,10 @@ VersionInfoTextVersion={#MyAppVersion}
 AppCopyright=Copyright (C) {#MyAppPublisher}
 
 ArchitecturesInstallIn64BitMode=x64
-PrivilegesRequired=lowest
 
 ; Setup pages
 LicenseFile=..\LICENSE.txt
-InfoBeforeFile=..\installer\FEATURES.txt
+InfoBeforeFile=FEATURES.txt
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -60,7 +63,7 @@ FinishedLabel=Setup has finished installing {#MyAppName} on your computer.
 Name: "desktopicon"; Description: "Create a &Desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-; Frozen build
+; Frozen build (ship EVERYTHING from dist)
 Source: "..\dist\CatalogLabel\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; OSS docs
@@ -69,14 +72,9 @@ Source: "..\README.md"; DestDir: "{app}"; DestName: "README.md"; Flags: ignoreve
 Source: "..\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+; Use userdesktop (NOT commondesktop) to avoid 0x80070005 on machines without rights to Public Desktop
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
-
-
-
-
-
-

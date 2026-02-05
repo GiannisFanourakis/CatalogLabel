@@ -6,3 +6,4 @@ APP_PUBLISHER = "Ioannis Fanourakis"
 
 APP_URL = "https://github.com/GiannisFanourakis/CatalogLabel"
 
+
