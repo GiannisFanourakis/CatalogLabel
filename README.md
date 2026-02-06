@@ -188,7 +188,11 @@ Donations help support:
 - bug fixes and maintenance
 - long-term improvements
 
-Donations are **optional** and do not affect your rights under the license.
+
+
+If you would like to make a voluntary donation, you can do so via Revolut:
+
+**Revolut:** https://revolut.me/YOUR_USERNAME
 
 ---
 
@@ -197,6 +201,8 @@ Donations are **optional** and do not affect your rights under the license.
 CatalogLabel is released under the **MIT License**.
 
 You are free to use, modify, and distribute this software, including for commercial purposes, provided the license terms are respected.
+
+
 
 
 
